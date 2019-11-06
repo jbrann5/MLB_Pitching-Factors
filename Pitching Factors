@@ -1,0 +1,396 @@
+library(tidyverse)
+library(car)
+library(leaps)
+library(glmnet)
+library(pROC)
+library(tree)
+library(rpart)
+library(party)
+library(ISLR)
+library(reshape)
+library(plyr)
+library(rpart)
+library(rpart.plot)
+library(rpart)
+library(rattle)
+```
+
+#Reading in American League Data
+
+pitch <- read.csv("ALpitching.csv")
+View(pitch)
+dim(pitch)
+pitch <- subset(pitch, IP >= 60)
+pitch <- as.factor(pitch1$Player)
+pitch <- as.factor(pitch1$Team)
+summary(pitch)
+
+
+#Reading in National League Data
+
+nlpitch <- read.csv("NL 2018.csv")
+dim(nlpitch)
+nlpitch <- subset(nlpitch, IP >= 60)
+nlpitch <- as.factor(nlpitch$Player)
+nlpitch <- as.factor(nlpitch$Team)
+
+
+##Boxplots and Histagrams
+
+summary(pitch)
+summary(nlpitch)
+
+#boxplot of ERA
+A <- pitch$ERA
+N <- nlpitch$ERA
+league <- c("American", "National")
+boxplot(A,N, names = league, veritcal = TRUE, main = "Boxplot of ERA in each Leagues")
+
+#histagram ERA
+ggplot(pitch, aes(x=ERA)) +
+  geom_histogram(binwidth=.5, alpha=.5, position="identity") +
+  ggtitle("Distribtion of AL ERA")
+
+ggplot(nlpitch, aes(x=ERA)) +
+  geom_histogram(binwidth=.5, alpha=.5, position="identity") +
+  ggtitle("Distribtuion of NL ERA")
+
+ggplot(nlpitch, aes(x=H)) +
+  geom_histogram(binwidth=20, alpha=.5, position="identity") +
+  ggtitle("Distribtuion of NL ERA")
+
+#boxplot of different variables with similar result between leagues
+Am <- pitch$G
+Na <- nlpitch$G
+lg <- c("American", "National")
+boxplot(Am,Na, names = lg, veritcal = TRUE, main = "Boxplot of G in each Leagues")
+
+AK <- pitch$K
+NK <- nlpitch$K
+lgK <- c("American", "National")
+boxplot(AK,NK, names = lgK, veritcal = TRUE, main = "Boxplot of K in each Leagues")
+
+AW <- pitch$WHIP
+NW <- nlpitch$WHIP
+lgW <- c("American", "National")
+boxplot(AW,NW, names = lgW, veritcal = TRUE, main = "Boxplot of WHIP in each Leagues")
+
+AHR <- pitch$HR
+NHR <- nlpitch$HR
+lgHR <- c("American", "National")
+boxplot(AHR,NHR, names = lgHR, veritcal = TRUE, main = "Boxplot of HR in each Leagues")
+
+AB <- pitch$BB
+NB <- nlpitch$BB
+lgB <- c("American", "National")
+boxplot(AB,NB, names = lgB, veritcal = TRUE, main = "Boxplot of BB in each Leagues") #slightly more BB in NL
+
+AI <- pitch$IP
+NI <- nlpitch$IP
+lgI <- c("American", "National")
+boxplot(AI,NI, names = lgI, veritcal = TRUE, main = "Boxplot of IP in each Leagues") #slightly more IP inNL
+
+AH <- pitch$H
+NH <- nlpitch$H
+lgH <- c("American", "National")
+boxplot(AH,NH, names = lgH, veritcal = TRUE, main = "Boxplot of H in each Leagues")
+
+
+#T-Tests
+
+t.test(pitch$ERA, nlpitch$ERA, paired = FALSE) #significant difference in mean (ERA)
+t.test(pitch$HR, nlpitch$HR, paired = FALSE) #significant difference in mean (HR)
+
+
+#Correlation Tables
+
+pitch %>%
+  select_if(is.numeric) %>%
+  select(G, K, ER, HR, WHIP, IP, ERA) %>%
+  pairs() %>% title(main = "Correlation Plot with AL Statistics")
+
+nlpitch %>%
+  select_if(is.numeric) %>%
+  select(G, K, ER, HR, WHIP, IP, ERA) %>%
+  pairs()  %>% title(main = "Correlation Plot with NL Statistics")
+
+
+#Correlation Heatmaps
+
+plotData <-melt(cor(pitch[sapply(pitch, is.numeric)]))
+
+ggplot(plotData ,
+       aes(x = X1, y = X2, fill =value)) +
+  geom_tile() +
+  ylab("") +
+  xlab("") +
+  scale_x_discrete(limits = rev(levels(plotData $Var2))) + 
+  scale_fill_gradient( low = "#56B1F7", high = "#132B43") + 
+  guides(fill = guide_legend(title = "Correlation"))
+
+plotData1 <-melt(cor(nlpitch[sapply(nlpitch, is.numeric)]))
+ggplot(plotData1,
+       aes(x = X1, y = X2, fill =value)) +
+  geom_tile() +
+  ylab("") +
+  xlab("") +
+  scale_x_discrete(limits = rev(levels(plotData1$Var2))) + 
+  scale_fill_gradient( low = "#56B1F7", high = "#132B43") + 
+  guides(fill = guide_legend(title = "Correlation"))
+
+################################################################################################
+#American League Analysis
+
+#Logistic Regression 
+
+model2 <- glm(ERA ~ G + GS + CG + SHO + IP + H + ER + K + BB + HR + W + L + SV + BS + HLD + WHIP, 
+             pitch, family = gaussian)
+summary(model2)
+chi.sq <- 998.521 - 47.043
+chi.sq #951.478
+pvalue <- pchisq(chi.sq, 7, lower.tail = FALSE)
+pvalue #reject the null with p value = 3.2229e-42
+
+
+#LASSO
+
+y <- pitch[,18]
+x <- model.matrix(ERA ~., pitch)[,c(-1:-36)]
+colnames(x)
+fit.pitching <- glmnet(x, y, alpha =1)
+fit.pitching$lambda
+fit.pitching$beta
+coef <- coef(fit.pitching)
+coef
+plot(fit.pitching)
+
+fit.lambda <- glmnet(x, y, alpha = .99)
+fit.pitching.cv <- cv.glmnet(x, y, alpha = .99, nfolds =10)
+plot(fit.pitching.cv)
+
+set.seed(10)
+fit.final <- glmnet(x, y, alpha = 0.50, lambda = 68)
+beta.final <- coef(fit.final) #only significant value is G
+beta.final <- beta.final[which(beta.final != 0),]
+beta.final <- as.matrix(beta.final)
+beta.final
+rownames(beta.final)
+
+final <- regsubsets(ERA ~ IP + H + ER + BB + WHIP, pitch)
+finalmodel <-function(pitch, final)# fit.final is an object form regsubsets
+{
+  p <- final$np-1
+  var.names <-c(names(pitch)[dim(pitch)[2]],names(coef(final, p))[-1])
+  data1 <- pitch[, var.names]
+  temp.input <-as.formula(paste(names(data1)[1], "~",paste(names(data1)[-1], collapse = "+"),sep = ""))
+  try.1 <-lm(temp.input, data=data1)
+  modellargestp <-max(coef(summary(try.1))[2:p+1, 4])
+  while(largestp > 0.05)
+  {p= p-1
+  var.names <- c(names(pitch)[dim(pitch)[2]], names(coef(final, p))[-1])
+  data1 <- pitch[, var.names]
+  temp.input <- as.formula(paste(names(data1)[1], "~",
+                                 paste(names(data1[-1], collaspe = "+"),
+                                       sep = "")))
+  try.1 <- lm(temp.input, data=data1)
+  largestp <- max(coef(summary(try.1))[2:p+1, 4])
+  }
+  finalmodel <- var.names
+  finalmodel
+}
+
+names <- finalmodel(pitch, final)
+names
+lm.input <-as.formula(paste(names[1], "~",paste(names[-1], collapse = "+")))
+summary(lm(lm.input, data = pitch))
+
+
+#Backward Selection
+
+final.1 <- update(model2, .~. -W)
+final.2 <- update(final.1, .~. -GS)
+final.3 <- update(final.2, .~.-L)
+final.4 <- update(final.3, .~. -HLD)
+final.5 <- update(final.4, .~. -K)
+final.6 <- update(final.5, .~. -HR)
+final.7 <- update(final.6, .~. -CG -SHO)
+final.8 <- update(final.7, .~. -SV)
+Anova(final.8)
+summary(final.8)
+summary(lm(ERA~ G + IP + H + ER + BB + BS + WHIP, pitch ))
+# ERA= G + IP + H + ER + BB + BS + WHIP
+
+
+#Model Selection
+model <- regsubsets(ERA ~ G + GS + CG + SHO + IP + H + ER + K + BB + HR + W + L + SV + BS + HLD + WHIP, 
+    pitch, method = "exhaustive")
+model
+total <- summary(model)
+total
+total$which
+data.frame(variables = (1:length(total$rsq)),
+           r_squared = total$rsq,
+           rss = total$rss,
+           bic = total$bic,
+           cp = total$cp)
+opt <- which.min(total$cp)
+fitnew<- total$which 
+colnames(fitnew)[fitnew[5,]] # IP, H, ER, BB, WHIP
+
+par(mfrow=c(2,1), mar=c(2.5,4,0.5,1), mgp=c(1.5,0.5,0))    # Compare different criterions: as expected rsq ^ when d is larger
+plot(sum$rsq, xlab="Number of predictors", ylab="R-square", col="red", type="p", pch=16)
+plot(sum$rss, xlab="Number of predictors", ylab="RSS", col="blue", type="p", pch=16)
+
+finalmodel <- lm(ERA ~ IP + H + ER + BB + + WHIP, pitch)
+summary(finalmodel)
+# ERA = -1.908 + 0.015*IP - 0.037*H + 0.0761*ER - 0.0375*BB + 4.527*WHIP **(do analysis over these numbers) 
+Anova(finalmodel) #all significant factors
+
+#QQ and Residual plots
+plot(finalmodel, 1, pch=16) # residual plot
+abline(h=0, col="blue", lwd=2)
+plot(finalmodel, 2) #not normal at the tails
+
+
+#Decision Tree
+
+fit.single.full <- tree(ERA ~ G + GS + CG + SHO + IP + H + ER + K + BB + HR + W + L + SV + BS + HLD + WHIP,
+                        pitch)   
+plot(fit.single.full)
+text(fit.single.full, pretty=1)
+fit.single.full$frame
+fit.single.full.s <- summary(fit.single.full)
+names(fit.single.full.s)
+fit.single.full.s$dev #RSS = 36.319
+sum((fit.single.full.s$residuals)^2) #same
+fit.single.full.s$size #size = 15
+
+tree1 <- rpart(ERA ~ G + GS + CG + SHO + IP + H + ER + K + BB + HR + W + L + SV + BS + HLD + WHIP,
+               pitch)
+prp(tree1)
+
+#####################################################################################################
+#National League Analysis
+
+#Logistic Regression
+
+model2.1 <- glm(ERA ~ G + GS + CG + SHO + IP + H + ER + K + BB + HR + W + L + SV + BS + HLD + WHIP, 
+              nlpitch, family = gaussian)
+summary(model2.1)
+chi.sq <- 688.334 - 28.035
+chi.sq #660.299
+pvalue <- pchisq(chi.sq, 7, lower.tail = FALSE)
+pvalue #reject the null with p value = 2.491e-138
+
+
+#LASSO
+
+y1 <- nlpitch[,18]
+x1 <- model.matrix(ERA ~., nlpitch)[,c(-1:-36)]
+colnames(x1)
+fit.pitching.1 <- glmnet(x1, y1, alpha =1)
+fit.pitching.1$lambda
+fit.pitching.1$beta
+coef.1 <- coef(fit.pitching.1)
+coef.1
+plot(fit.pitching.1)
+
+fit.lambda1 <- glmnet(x1, y1, alpha = .99)
+fit.pitching.cv1 <- cv.glmnet(x1, y1, alpha = .99, nfolds =10)
+plot(fit.pitching.cv1)
+
+set.seed(10)
+fit.final <- glmnet(x, y, alpha = 0.50, lambda = 54)
+beta.final <- coef(fit.final)
+beta.final <- beta.final[which(beta.final != 0),]
+beta.final <- as.matrix(beta.final)
+beta.final
+rownames(beta.final)
+
+final2 <- regsubsets(ERA ~ G +IP + H + ER + BB + WHIP, nlpitch)
+finalmodel1 <-function(nlpitch, final2)# fit.final is an object form regsubsets
+{
+  p <- final2$np-1
+  var.names <-c(names(nlpitch)[dim(nlpitch)[2]],names(coef(final2, p))[-1])
+  data1 <- nlpitch[, var.names]
+  temp.input <-as.formula(paste(names(data1)[1], "~",paste(names(data1)[-1], collapse = "+"),sep = ""))
+  try.1 <-lm(temp.input, data=data1)
+  modellargestp <-max(coef(summary(try.1))[2:p+1, 4])
+  while(largestp > 0.05)
+  {p= p-1
+  var.names <- c(names(nlpitch)[dim(nlpitch)[2]], names(coef(final2, p))[-1])
+  data1 <- nlpitch[, var.names]
+  temp.input <- as.formula(paste(names(data1)[1], "~",
+                                 paste(names(data1[-1], collaspe = "+"),
+                                       sep = "")))
+  try.1 <- lm(temp.input, data=data1)
+  largestp <- max(coef(summary(try.1))[2:p+1, 4])
+  }
+  finalmodel <- var.names
+  finalmodel
+}
+
+names <- finalmodel1(nlpitch, final2)
+names #WHIP, G, IP, H, ER, BB
+lm.input <-as.formula(paste(names[1], "~",paste(names[-1], collapse = "+")))
+summary(lm(lm.input, data = nlpitch))
+
+
+#Backwards Selection 
+
+final.1 <- update(model2.1, .~. -W)
+summary(final.4)
+final.2 <- update(final.1, .~. -GS)
+final.3 <- update(final.2, .~.-L)
+final.4 <- update(final.3, .~. -HLD)
+final.5 <- update(final.4, .~. -K)
+final.6 <- update(final.5, .~. -HR)
+final.7 <- update(final.6, .~. -CG -SHO)
+final.8 <- update(final.7, .~. -SV)
+# ERA= G + IP + H + ER + BB + BS + WHIP
+Anova(final.8)
+summary(lm(ERA ~ G + IP + H + ER + BB + BS +WHIP, nlpitch))
+summary(final.8)
+
+
+#Model Selection 
+
+model.1 <- regsubsets(ERA ~ G + GS + CG + SHO + IP + H + ER + K + BB + HR + W + L + SV + BS + HLD + WHIP, 
+                    nlpitch, method = "exhaustive")
+total.1 <- summary(model.1)
+total.1$which
+data.frame(variables = (1:length(total.1$rsq)),
+           r_squared = total.1$rsq,
+           rss = total.1$rss,
+           bic = total.1$bic,
+           cp = total.1$cp)
+opt <- which.min(total.1$cp)
+new<- total.1$which 
+colnames(new)[new[5,]] # IP, H, ER, BB, WHIP
+finalmodel.1 <- lm(ERA ~ IP + H + ER + BB + WHIP, nlpitch)
+summary(finalmodel.1)
+# ERA = -2.450 + 0.019*IP - 0.041*H + 0.0787*ER - 0.041*BB + 4.860*WHIP **(do analysis over these numbers)
+Anova(finalmodel.1) #all significant in variance
+
+#QQ and Residual plots
+plot(finalmodel.1, 1, pch=16) # residual plot
+abline(h=0, col="blue", lwd=2)
+plot(finalmodel.1, 2)
+
+
+#Decision Tree
+
+fit.single.full.1 <- tree(ERA ~ G + GS + CG + SHO + IP + H + ER + K + BB + HR + W + L + SV + BS + HLD + WHIP,
+                        nlpitch)   
+plot(fit.single.full.1)
+text(fit.single.full.1, pretty=0)
+fit.single.full.1$frame
+fit.single.full.su <- summary(fit.single.full.1)
+names(fit.single.full.su)
+fit.single.full.su$dev #RSS = 129.45
+sum((fit.single.full.su$residuals)^2) #same
+fit.single.full.su$size #size = 12
+
+tree <- rpart(ERA ~ G + GS + CG + SHO + IP + H + ER + K + BB + HR + W + L + SV + BS + HLD + WHIP,
+               nlpitch)
+prp(tree)
